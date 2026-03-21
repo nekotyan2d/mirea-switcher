@@ -3,6 +3,7 @@ package ru.nekotyan2d.mirea_switcher
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -96,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
 
-                val token = CookieUtils.getAuthToken("attendance.mirea.ru")
+                val token = CookieUtils.getAuthToken("https://attendance.mirea.ru")
 
                 if(token.isNullOrEmpty()) return
 
