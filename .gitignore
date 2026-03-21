@@ -4,7 +4,9 @@
 .idea
 .DS_Store
 /build
+release
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+*.jks
