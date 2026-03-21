@@ -1,13 +1,20 @@
 package ru.nekotyan2d.mirea_switcher
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.webkit.CookieManager
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.PopupMenu
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import ru.nekotyan2d.mirea_switcher.data.model.Account
@@ -39,22 +46,11 @@ class MainActivity : AppCompatActivity() {
         accountList = repo.getAll()
 
         initUi()
-
-        webView.loadUrl("https://pulse.mirea.ru")
+        checkAndRequestPermissions()
     }
 
     private fun initUi(){
-        webView = findViewById<WebView>(R.id.webView)
         switchAccountBtn = findViewById<Button>(R.id.switch_account_btn)
-
-        val settings = webView.settings
-
-        settings.javaScriptEnabled = true
-        settings.domStorageEnabled = true
-
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-
         switchAccountBtn.setOnClickListener { view ->
             val popup = PopupMenu(this, view)
 
@@ -81,17 +77,76 @@ class MainActivity : AppCompatActivity() {
             popup.show()
         }
 
+        initWebView()
+    }
+
+    private fun initWebView(){
+        webView = findViewById<WebView>(R.id.webView)
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+        }
+
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
 
                 val token = CookieUtils.getAuthToken("attendance.mirea.ru")
 
-                if(token.isNullOrEmpty()) return;
+                if(token.isNullOrEmpty()) return
 
                 repo.addIfAbsent(token)
                 accountList = repo.getAll()
             }
+        }
+
+        webView.webChromeClient = object : WebChromeClient(){
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val requestedResources = request.resources
+
+                val allowedResources = requestedResources.filter {
+                    it == PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                }
+
+                if(allowedResources.isNotEmpty()){
+                    request.grant(allowedResources.toTypedArray())
+                }else{
+                    request.deny()
+                }
+            }
+        }
+
+        webView.loadUrl("https://pulse.mirea.ru")
+    }
+
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+
+        if(cameraGranted){
+            initWebView()
+        }else{
+            Toast.makeText(applicationContext, "Требуется разрешение на использование камеры",
+                Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun checkAndRequestPermissions(){
+        val permissionsNeeded = mutableListOf<String>()
+
+        if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
+            permissionsNeeded.add(Manifest.permission.CAMERA)
+        }
+
+        if(permissionsNeeded.isNotEmpty()){
+            requestPermissionLauncher.launch(permissionsNeeded.toTypedArray())
+        }else{
+            initWebView()
         }
     }
 }
