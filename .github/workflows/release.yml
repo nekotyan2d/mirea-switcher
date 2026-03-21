@@ -53,15 +53,20 @@ jobs:
                   echo "$SIGNING_KEY_BASE64" | base64 --decode > "$KEYSTORE_PATH"
 
                   ZIPALIGN_BIN="$ANDROID_HOME/build-tools/36.0.0/zipalign"
-                  "$ZIPALIGN_BIN" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+                  APKSIGNER_BIN="$ANDROID_HOME/build-tools/36.0.0/apksigner"
 
-                  jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-                    -keystore "$KEYSTORE_PATH" \
-                    -storepass "$KEYSTORE_PASSWORD" \
-                    -keypass "$KEY_PASSWORD" \
-                    "$ALIGNED_APK" "$KEY_ALIAS"
+                  "$ZIPALIGN_BIN" -v 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-                  mv "$ALIGNED_APK" "$SIGNED_APK"
+                  "$APKSIGNER_BIN" sign \
+                    --ks "$KEYSTORE_PATH" \
+                    --ks-key-alias "$KEY_ALIAS" \
+                    --ks-pass "pass:$KEYSTORE_PASSWORD" \
+                    --key-pass "pass:$KEY_PASSWORD" \
+                    --out "$SIGNED_APK" \
+                    "$ALIGNED_APK"
+
+                  "$ZIPALIGN_BIN" -c -v 4 "$SIGNED_APK"
+                  "$APKSIGNER_BIN" verify --verbose --print-certs "$SIGNED_APK"
 
             - name: Upload APK artifact
               uses: actions/upload-artifact@v4
