@@ -3,7 +3,6 @@ package ru.nekotyan2d.mirea_switcher
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -21,6 +20,7 @@ import androidx.core.view.WindowInsetsCompat
 import ru.nekotyan2d.mirea_switcher.data.model.Account
 import ru.nekotyan2d.mirea_switcher.data.repository.AccountRepository
 import ru.nekotyan2d.mirea_switcher.utils.CookieUtils
+import ru.nekotyan2d.mirea_switcher.utils.GrpcInterceptor
 
 class MainActivity : AppCompatActivity() {
     private lateinit var repo: AccountRepository
@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchAccountBtn: Button
 
     private var currentToken: String = ""
+    private var currentUserName: String = ""
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,6 +98,8 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
 
+                view?.evaluateJavascript(GrpcInterceptor.buildInterceptScript(), null)
+
                 val token = CookieUtils.getAuthToken("https://attendance.mirea.ru")
 
                 if(token.isNullOrEmpty()) return
@@ -121,6 +124,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        webView.addJavascriptInterface(GrpcInterceptor {
+            name ->
+            currentUserName = name
+            runOnUiThread { onUserNameReceived(name) }
+        }, "AndroidBridge")
 
         webView.loadUrl("https://pulse.mirea.ru")
     }
@@ -149,5 +158,10 @@ class MainActivity : AppCompatActivity() {
         }else{
             initWebView()
         }
+    }
+
+    private fun onUserNameReceived(name: String) {
+        currentUserName = name
+        Toast.makeText(this, "user: $name", Toast.LENGTH_SHORT).show()
     }
 }
