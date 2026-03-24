@@ -19,10 +19,17 @@ class AccountRepository(ctx: Context) {
         prefs.edit { putString("accounts", gson.toJson(accounts)) }
     }
 
-    fun addIfAbsent(token: String): Boolean {
+    fun addIfAbsent(name:String, token: String): Boolean {
         val accounts = getAll()
         if (accounts.any { it.token == token }) return false
-        accounts.add(Account("Account ${accounts.size + 1}", token))
+        accounts.add(Account(name, token))
+        save(accounts)
+        return true
+    }
+
+    fun remove(token: String): Boolean {
+        val accounts = getAll()
+        accounts.removeIf { it.token == token }
         save(accounts)
         return true
     }

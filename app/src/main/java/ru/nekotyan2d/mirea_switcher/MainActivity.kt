@@ -2,6 +2,7 @@ package ru.nekotyan2d.mirea_switcher
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
@@ -32,6 +33,8 @@ class MainActivity : AppCompatActivity() {
 
     private var currentToken: String = ""
     private var currentUserName: String = ""
+    private lateinit var grpcInterceptor: GrpcInterceptor
+    private var checkedAccounts = false
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,17 +98,27 @@ class MainActivity : AppCompatActivity() {
 
 
         webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
 
                 view?.evaluateJavascript(GrpcInterceptor.buildInterceptScript(), null)
+            }
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
 
                 val token = CookieUtils.getAuthToken("https://attendance.mirea.ru")
 
                 if(token.isNullOrEmpty()) return
 
-                repo.addIfAbsent(token)
-                accountList = repo.getAll()
+                currentToken = token
+
+                if(checkedAccounts) return
+
+                for(account in accountList){
+                    grpcInterceptor.checkToken(webView, account.token)
+                }
+
+                checkedAccounts = true
             }
         }
 
@@ -125,11 +138,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.addJavascriptInterface(GrpcInterceptor {
-            name ->
-            currentUserName = name
-            runOnUiThread { onUserNameReceived(name) }
-        }, "AndroidBridge")
+        grpcInterceptor = GrpcInterceptor(
+            onUserName = {
+                name ->
+                currentUserName = name
+                runOnUiThread { onUserNameReceived(name) }
+            },
+            onTokenValidated = {
+                token, valid ->
+                runOnUiThread { onTokenValidated(token, valid) }
+            }
+        )
+
+        webView.addJavascriptInterface(grpcInterceptor, "AndroidBridge")
 
         webView.loadUrl("https://pulse.mirea.ru")
     }
@@ -162,6 +183,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun onUserNameReceived(name: String) {
         currentUserName = name
-        Toast.makeText(this, "user: $name", Toast.LENGTH_SHORT).show()
+        repo.addIfAbsent(currentUserName, currentToken)
+        accountList = repo.getAll()
+    }
+
+    private fun onTokenValidated(token: String, valid: Boolean){
+        if(!valid) repo.remove(token)
+        accountList = repo.getAll()
     }
 }

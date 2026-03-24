@@ -1,10 +1,13 @@
 package ru.nekotyan2d.mirea_switcher.utils
 
 import android.util.Log
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 
 class GrpcInterceptor(
-    private val onUserName: (String) -> Unit
+    private val onUserName: (String) -> Unit,
+    private val onTokenValidated: (String, Boolean) -> Unit
 ) {
 
     @JavascriptInterface
@@ -14,6 +17,42 @@ class GrpcInterceptor(
             if (name != null) onUserName(name)
         } catch (e: Exception) {
             Log.e("gRPC", "Parse error: ${e::class.java.name}: ${e.message}")
+        }
+    }
+
+    @JavascriptInterface
+    fun onGetMeResult(token: String, valid: Boolean){
+        onTokenValidated(token, valid)
+    }
+
+    fun checkToken(webView: WebView, token: String){
+        CookieManager.getInstance().apply {
+            CookieUtils.setAuthCookie(token)
+            flush()
+        }
+
+        val script = """
+            (function(){
+            if (typeof window.__getMe !== 'function') {
+                AndroidBridge.onGetMeResult('${token}', false);
+                return;
+            }
+            window.__getMe()
+                .then(function(response) {
+                    if (!response.ok) return Promise.reject('HTTP ' + response.status);
+                    return response.arrayBuffer();
+                })
+                .then(function() {
+                    AndroidBridge.onGetMeResult('${token}', true);
+                })
+                .catch(function(err) {
+                    console.error('checkToken error:', err);
+                    AndroidBridge.onGetMeResult('${token}', false);
+                });
+        })();
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(script, null)
         }
     }
 
@@ -36,11 +75,20 @@ class GrpcInterceptor(
                 }
 
                 const originalFetch = window.fetch;
+                
+                window.__getMe = function() {
+                    return Promise.reject('getMe not intercepted yet');
+                };
+                
                 window.fetch = async function(...args) {
                     const response = await originalFetch.apply(this, args);
                     const url = (typeof args[0] === 'string' ? args[0] : args[0]?.url) || '';
 
                     if (url.toLowerCase().includes('getme')) {
+                        window.__getMe = function() {
+                            return originalFetch.apply(this, args);
+                        };
+                        
                         try {
                             const clone = response.clone();
                             const buffer = await clone.arrayBuffer();
