@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -54,6 +55,14 @@ class MainActivity : AppCompatActivity() {
 
         initUi()
         checkAndRequestPermissions()
+
+        val callback = object : OnBackPressedCallback(true){
+            override fun handleOnBackPressed() {
+                webView.goBack()
+            }
+        }
+
+        onBackPressedDispatcher.addCallback(this, callback)
     }
 
     private fun initUi(){
