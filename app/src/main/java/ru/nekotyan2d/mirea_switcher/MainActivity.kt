@@ -79,6 +79,8 @@ class MainActivity : AppCompatActivity() {
             popup.setOnMenuItemClickListener {
                 if(it.itemId == accountList.size){
                     currentToken = ""
+                    currentUserName = ""
+                    switchAccountBtn.text = getString(R.string.switch_account_btn)
                     CookieManager.getInstance().removeAllCookies {  }
                 }else{
                     val selectedAccount = accountList[it.itemId]
@@ -116,9 +118,12 @@ class MainActivity : AppCompatActivity() {
 
                 view?.evaluateJavascript(GrpcInterceptor.buildInterceptScript(), null)
                 view?.evaluateJavascript(GrpcInterceptor.buildHistoryInterceptScript(), null)
+                grpcInterceptor.hideHeader(webView)
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+
+                grpcInterceptor.hideHeader(webView)
 
                 val token = CookieUtils.getAuthToken("https://attendance.mirea.ru")
 
