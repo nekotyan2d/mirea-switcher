@@ -11,7 +11,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.PopupMenu
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -30,6 +32,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var switchAccountBtn: Button
+    private lateinit var pageTitle: TextView
 
     private var currentToken: String = ""
     private var currentUserName: String = ""
@@ -52,6 +55,14 @@ class MainActivity : AppCompatActivity() {
 
         initUi()
         checkAndRequestPermissions()
+
+        val callback = object : OnBackPressedCallback(true){
+            override fun handleOnBackPressed() {
+                webView.goBack()
+            }
+        }
+
+        onBackPressedDispatcher.addCallback(this, callback)
     }
 
     private fun initUi(){
@@ -68,6 +79,8 @@ class MainActivity : AppCompatActivity() {
             popup.setOnMenuItemClickListener {
                 if(it.itemId == accountList.size){
                     currentToken = ""
+                    currentUserName = ""
+                    switchAccountBtn.text = getString(R.string.switch_account_btn)
                     CookieManager.getInstance().removeAllCookies {  }
                 }else{
                     val selectedAccount = accountList[it.itemId]
@@ -81,6 +94,8 @@ class MainActivity : AppCompatActivity() {
 
             popup.show()
         }
+
+        pageTitle = findViewById<TextView>(R.id.page_title)
 
         initWebView()
     }
@@ -98,13 +113,17 @@ class MainActivity : AppCompatActivity() {
 
 
         webView.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+            override fun onPageStarted(view: WebView?, url: String, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
 
                 view?.evaluateJavascript(GrpcInterceptor.buildInterceptScript(), null)
+                view?.evaluateJavascript(GrpcInterceptor.buildHistoryInterceptScript(), null)
+                grpcInterceptor.hideHeader(webView)
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+
+                grpcInterceptor.hideHeader(webView)
 
                 val token = CookieUtils.getAuthToken("https://attendance.mirea.ru")
 
@@ -147,6 +166,15 @@ class MainActivity : AppCompatActivity() {
             onTokenValidated = {
                 token, valid ->
                 runOnUiThread { onTokenValidated(token, valid) }
+            },
+            onUrlChanged = {
+                url ->
+                grpcInterceptor.getTitle(webView, {
+                    title ->
+                    grpcInterceptor.hideHeader(webView)
+                    runOnUiThread { pageTitle.text = title.replace("\"", "")}
+                })
+
             }
         )
 
@@ -183,6 +211,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onUserNameReceived(name: String) {
         currentUserName = name
+        switchAccountBtn.text = currentUserName
         repo.addIfAbsent(currentUserName, currentToken)
         accountList = repo.getAll()
     }

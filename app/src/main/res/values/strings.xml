@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Mirea Switcher</string>
-    <string name="switch_account_btn">Аккаунт</string>
+    <string name="switch_account_btn">Войти</string>
 </resources>

@@ -1,5 +1,7 @@
 package ru.nekotyan2d.mirea_switcher.utils
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -7,7 +9,8 @@ import android.webkit.WebView
 
 class GrpcInterceptor(
     private val onUserName: (String) -> Unit,
-    private val onTokenValidated: (String, Boolean) -> Unit
+    private val onTokenValidated: (String, Boolean) -> Unit,
+    private val onUrlChanged: (String) -> Unit
 ) {
 
     @JavascriptInterface
@@ -56,6 +59,27 @@ class GrpcInterceptor(
         }
     }
 
+    @JavascriptInterface
+    fun onUrlChange(url: String) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            onUrlChanged(url)
+        }, 300)
+    }
+
+    fun getTitle(view: WebView?, onResult: (String) -> Unit) {
+        view?.evaluateJavascript("document.title ?? ''") { result ->
+            onResult(result)
+        }
+    }
+
+    fun hideHeader(view: WebView?){
+        view?.evaluateJavascript("""
+            document.querySelectorAll('.ant-flex.ant-flex-align-center.ant-flex-justify-space-between').forEach(item => {
+                if(item.parentElement.className.includes('root')) item.style.display = 'none'
+            })
+        """.trimIndent(), null)
+    }
+
     companion object {
         fun buildInterceptScript(): String = """
             (function() {
@@ -100,6 +124,32 @@ class GrpcInterceptor(
                     }
                     return response;
                 };
+            })();
+        """.trimIndent()
+
+        fun buildHistoryInterceptScript(): String = """
+            (function() {
+                if (window.__historyIntercepted) return;
+                window.__historyIntercepted = true;
+        
+                const originalPushState = history.pushState;
+                const originalReplaceState = history.replaceState;
+        
+                function onUrlChanged() {
+                    AndroidBridge.onUrlChange(window.location.href);
+                }
+        
+                history.pushState = function(...args) {
+                    originalPushState.apply(this, args);
+                    onUrlChanged();
+                };
+        
+                history.replaceState = function(...args) {
+                    originalReplaceState.apply(this, args);
+                    onUrlChanged();
+                };
+        
+                window.addEventListener('popstate', onUrlChanged);
             })();
         """.trimIndent()
     }
