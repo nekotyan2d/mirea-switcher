@@ -130,14 +130,6 @@ class MainActivity : AppCompatActivity() {
                 if(token.isNullOrEmpty()) return
 
                 currentToken = token
-
-                if(checkedAccounts) return
-
-                for(account in accountList){
-                    grpcInterceptor.checkToken(webView, account.token)
-                }
-
-                checkedAccounts = true
             }
         }
 
@@ -214,6 +206,18 @@ class MainActivity : AppCompatActivity() {
         switchAccountBtn.text = currentUserName
         repo.addIfAbsent(currentUserName, currentToken)
         accountList = repo.getAll()
+
+        checkAccounts()
+    }
+
+    private fun checkAccounts(){
+        if(checkedAccounts) return
+
+        for(account in accountList){
+            grpcInterceptor.checkToken(webView, account.token)
+        }
+
+        checkedAccounts = true
     }
 
     private fun onTokenValidated(token: String, valid: Boolean){
