@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "ru.nekotyan2d.mirea_switcher.mirea_switcher"
+    namespace = "ru.nekotyan2d.mirea_switcher"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "ru.nekotyan2d.mirea_switcher.mirea_switcher"
+        applicationId = "ru.nekotyan2d.mirea_switcher"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

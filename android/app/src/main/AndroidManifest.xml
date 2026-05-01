@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="mirea_switcher"
+        android:label="Mirea Switcher"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
