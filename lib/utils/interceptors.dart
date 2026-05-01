@@ -24,11 +24,7 @@ class Interceptors {
           final url = args[0] as String;
           final base64Body = args[1] as String;
           final name = GrpcWebParser.parseFullNameFromBase64(base64Body);
-          if (name != null) {
-            onUserName(name);
-          }else{
-            onUserName("Войти");
-          }
+          if (name != null) onUserName(name);
         } catch (e) {
           print('[gRPC] Parse error: $e');
         }
@@ -73,6 +69,7 @@ class Interceptors {
           window.flutter_inappwebview.callHandler('onGetMeResult', '$token', null);
           return;
         }
+        window.__validating = true;
         window.__getMe()
           .then(function(response) {
             return response.arrayBuffer();
@@ -84,6 +81,8 @@ class Interceptors {
           .catch(function(err) {
             console.error('checkToken error:', err);
             window.flutter_inappwebview.callHandler('onGetMeResult', '$token', null);
+          }).finally(function() {
+            window.__validating = false;
           });
       })();
     """;
@@ -108,6 +107,7 @@ class Interceptors {
     (function() {
       if (window.__grpcIntercepted) return;
       window.__grpcIntercepted = true;
+      window.__validating = false;
 
       window.uint8ToBase64 = (bytes) => {
         let binary = '';
@@ -135,14 +135,16 @@ class Interceptors {
           window.__getMe = function() {
             return originalFetch.apply(this, args);
           };
-
-          try {
-            const clone = response.clone();
-            const buffer = await clone.arrayBuffer();
-            const bytes = new Uint8Array(buffer);
-            window.flutter_inappwebview.callHandler('onGrpcResponse', url, uint8ToBase64(bytes));
-          } catch(e) {
-            console.error('Intercept error:', e.message);
+          
+          if(!window.__validating){
+            try {
+              const clone = response.clone();
+              const buffer = await clone.arrayBuffer();
+              const bytes = new Uint8Array(buffer);
+              window.flutter_inappwebview.callHandler('onGrpcResponse', url, uint8ToBase64(bytes));
+            } catch(e) {
+              console.error('Intercept error:', e.message);
+            }
           }
         }
         return response;

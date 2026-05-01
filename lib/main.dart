@@ -64,7 +64,8 @@ class _MainScreenState extends State<MainScreen> {
   String _currentToken = '';
   String _currentUserName = '';
   String _pageTitle = '';
-  bool _checkedAccounts = false;
+  final Set<String> _validatedTokens = {};
+  bool _checkStarted = false;
   bool _cameraGranted = false;
   bool _permissionChecked = false;
 
@@ -115,26 +116,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onUserNameReceived(String name) {
-    if(name == 'Войти'){
-      setState(() {
-        _currentUserName = "";
-        _currentToken = "";
-      });
-      _checkAccounts();
-      return;
-    }
     setState(() {
       _currentUserName = name;
     });
     _repo.addIfAbsent(name, _currentToken);
     setState(() => _accounts = _repo.getAll());
-    _checkAccounts();
   }
 
   void _checkAccounts() async {
-    //if (_checkedAccounts) return;
-    //_checkedAccounts = true;
-
     final accountsToCheck = List.of(_accounts);
     for (final account in accountsToCheck) {
       final valid = await _interceptors.checkTokenAsync(
@@ -190,6 +179,11 @@ class _MainScreenState extends State<MainScreen> {
     final token = await CookieUtils.getAuthToken('https://attendance.mirea.ru');
     if (token != null && token.isNotEmpty) {
       setState(() => _currentToken = token);
+    }
+
+    if (!_checkStarted) {
+      _checkStarted = true;
+      _checkAccounts();
     }
   }
 
