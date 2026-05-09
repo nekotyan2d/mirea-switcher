@@ -64,7 +64,6 @@ class _MainScreenState extends State<MainScreen> {
   String _currentToken = '';
   String _currentUserName = '';
   String _pageTitle = '';
-  final Set<String> _validatedTokens = {};
   bool _checkStarted = false;
   bool _cameraGranted = false;
   bool _permissionChecked = false;
@@ -84,10 +83,11 @@ class _MainScreenState extends State<MainScreen> {
           setState(() => _currentUserName = name);
           _onUserNameReceived(name);
         },
-        onTokenValidated: (token, valid) {
-          if (!mounted) return;
-          print("token validated: $token, $valid");
-          setState(() => _onTokenValidated(token, valid));
+        onGetMeIntercepted: (){
+          if(!_checkStarted){
+            _checkStarted = true;
+            _checkAccounts();
+          }
         },
         onUrlChanged: (url) async {
           final controller = _webViewController;
@@ -130,7 +130,6 @@ class _MainScreenState extends State<MainScreen> {
           _webViewController!,
           account.token
       );
-
       if(!valid) {
         _repo.remove(account.token);
         if(mounted) setState(() => _accounts = _repo.getAll());
@@ -144,11 +143,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _onTokenValidated(String token, bool valid) {
-    if (!valid) _repo.remove(token);
-    _accounts = _repo.getAll();
-  }
-
   Future<void> _selectAccount(int index) async {
     if (index == _accounts.length) {
       setState(() {
@@ -156,12 +150,15 @@ class _MainScreenState extends State<MainScreen> {
         _currentUserName = '';
       });
       await CookieManager.instance().deleteAllCookies();
+      _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri('https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True')));
     } else {
       final selected = _accounts[index];
-      _currentToken = selected.token;
+      setState(() {
+        _currentToken = selected.token;
+      });
       await CookieUtils.setAuthCookie(_currentToken);
+      _webViewController?.reload();
     }
-    _webViewController?.reload();
   }
 
   void _onWebViewCreated(InAppWebViewController controller) {
@@ -179,11 +176,6 @@ class _MainScreenState extends State<MainScreen> {
     final token = await CookieUtils.getAuthToken('https://attendance.mirea.ru');
     if (token != null && token.isNotEmpty) {
       setState(() => _currentToken = token);
-    }
-
-    if (!_checkStarted) {
-      _checkStarted = true;
-      _checkAccounts();
     }
   }
 
@@ -305,6 +297,18 @@ class _MainScreenState extends State<MainScreen> {
             injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
           ),
         ]),
+        shouldOverrideUrlLoading: (controller, navigationAction) async {
+          final url = navigationAction.request.url;
+          if(url != null && url.path.contains('/api/auth/logout')){
+            setState(() {
+              _currentToken = '';
+              _currentUserName = '';
+              _checkStarted = false;
+            });
+          }
+
+          return NavigationActionPolicy.ALLOW;
+        },
         onWebViewCreated: _onWebViewCreated,
         onLoadStart: _onLoadStart,
         onLoadStop: _onLoadStop,

@@ -5,14 +5,14 @@ import 'grpc_web_parser.dart';
 
 class Interceptors {
   final void Function(String name) onUserName;
-  final void Function(String token, bool valid) onTokenValidated;
+  final void Function() onGetMeIntercepted;
   final void Function(String url) onUrlChanged;
 
   final Map<String, Completer<bool>> _pendingValidations = {};
 
   Interceptors({
     required this.onUserName,
-    required this.onTokenValidated,
+    required this.onGetMeIntercepted,
     required this.onUrlChanged,
   });
 
@@ -25,6 +25,7 @@ class Interceptors {
           final base64Body = args[1] as String;
           final name = GrpcWebParser.parseFullNameFromBase64(base64Body);
           if (name != null) onUserName(name);
+          onGetMeIntercepted();
         } catch (e) {
           print('[gRPC] Parse error: $e');
         }
@@ -40,7 +41,6 @@ class Interceptors {
             GrpcWebParser.parseFullNameFromBase64(base64) != null;
         _pendingValidations[token]?.complete(valid);
         _pendingValidations.remove(token);
-        onTokenValidated(token, valid);
       },
     );
 
