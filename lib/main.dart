@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,6 @@ void main() async {
   runApp(App(prefs: prefs));
 }
 
-
 class App extends StatelessWidget {
   final SharedPreferences prefs;
   const App({super.key, required this.prefs});
@@ -26,8 +26,8 @@ class App extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
-            seedColor: Color.fromRGBO(22, 119, 255, 1),
-            brightness: Brightness.light
+          seedColor: Color.fromRGBO(22, 119, 255, 1),
+          brightness: Brightness.light,
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color.fromRGBO(245, 245, 245, 1),
@@ -35,16 +35,16 @@ class App extends StatelessWidget {
       ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
-          colorScheme: ColorScheme.fromSeed(
-              seedColor: Color.fromRGBO(22, 119, 255, 1),
-              brightness: Brightness.dark
-          ),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color.fromRGBO(29, 29, 29, 1),
-          ),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Color.fromRGBO(22, 119, 255, 1),
+          brightness: Brightness.dark,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color.fromRGBO(29, 29, 29, 1),
+        ),
       ),
       debugShowCheckedModeBanner: false,
-      home: MainScreen(prefs: prefs)
+      home: MainScreen(prefs: prefs),
     );
   }
 }
@@ -58,6 +58,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  static const _prefLastAuthToken = 'last_auth_token';
+
   late final AccountRepository _repo;
 
   List<Account> _accounts = [];
@@ -78,30 +80,67 @@ class _MainScreenState extends State<MainScreen> {
     _repo = AccountRepository(widget.prefs);
     _accounts = _repo.getAll();
     _interceptors = Interceptors(
-        onUserName: (name){
-          if(!mounted) return;
-          setState(() => _currentUserName = name);
-          _onUserNameReceived(name);
-        },
-        onGetMeIntercepted: (){
-          if(!_checkStarted){
-            _checkStarted = true;
-            _checkAccounts();
-          }
-        },
-        onUrlChanged: (url) async {
-          final controller = _webViewController;
-          if (controller == null) return;
-          final title = await _interceptors.getTitle(controller);
-          await _interceptors.hideHeader(controller);
-          if (!mounted) return;
-          setState(() => _pageTitle = title?.replaceAll('"', '') ?? '');
-        },
+      onUserName: (name) {
+        if (!mounted) return;
+        setState(() => _currentUserName = name);
+        _onUserNameReceived(name);
+      },
+      onGetMeIntercepted: () {
+        _scheduleHideHeaderForPulse();
+        if (!_checkStarted) {
+          _checkStarted = true;
+          _checkAccounts();
+        }
+      },
+      onUrlChanged: (url) async {
+        final controller = _webViewController;
+        if (controller == null) return;
+        final title = await _interceptors.getTitle(controller);
+        _scheduleHideHeaderForPulse();
+        if (!mounted) return;
+        setState(() => _pageTitle = title?.replaceAll('"', '') ?? '');
+      },
     );
     _checkAndRequestPermissions();
   }
 
+  Future<void> _persistLastAuthToken(String token) async {
+    if (token.isEmpty) {
+      await widget.prefs.remove(_prefLastAuthToken);
+    } else {
+      await widget.prefs.setString(_prefLastAuthToken, token);
+    }
+  }
+
+  /// Подставляет куку последней сессии до первого запроса WebView.
+  Future<void> _hydrateSessionFromPrefs() async {
+    var token = widget.prefs.getString(_prefLastAuthToken);
+    if (token == null || token.isEmpty) {
+      final all = _repo.getAll();
+      if (all.length == 1) token = all.single.token;
+    }
+    if (token == null || token.isEmpty) return;
+    final resolved = token;
+
+    await CookieUtils.setAuthCookie(resolved);
+    if (!mounted) return;
+
+    String userName = '';
+    for (final a in _repo.getAll()) {
+      if (a.token == resolved) {
+        userName = a.name;
+        break;
+      }
+    }
+    setState(() {
+      _currentToken = resolved;
+      _currentUserName = userName;
+    });
+    await _persistLastAuthToken(resolved);
+  }
+
   Future<void> _checkAndRequestPermissions() async {
+    await _hydrateSessionFromPrefs();
     final status = await Permission.camera.request();
     if (!mounted) return;
     setState(() {
@@ -110,7 +149,9 @@ class _MainScreenState extends State<MainScreen> {
     });
     if (!status.isGranted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Требуется разрешение на использование камеры')),
+        const SnackBar(
+          content: Text('Требуется разрешение на использование камеры'),
+        ),
       );
     }
   }
@@ -123,25 +164,48 @@ class _MainScreenState extends State<MainScreen> {
     setState(() => _accounts = _repo.getAll());
   }
 
+  /// Скрывает шапку сайта; повторы нужны, т.к. после смены сессии React
+  /// монтирует хедер позже, чем срабатывает [onLoadStop].
+  void _scheduleHideHeaderForPulse() {
+    final controller = _webViewController;
+    if (controller == null) return;
+
+    Future<void> hide() async {
+      if (!mounted) return;
+      final c = _webViewController;
+      if (c == null) return;
+      await _interceptors.hideHeader(c);
+    }
+
+    unawaited(hide());
+    unawaited(Future.delayed(const Duration(milliseconds: 350), hide));
+    unawaited(Future.delayed(const Duration(milliseconds: 900), hide));
+    unawaited(Future.delayed(const Duration(milliseconds: 2000), hide));
+  }
+
   void _checkAccounts() async {
     final accountsToCheck = List.of(_accounts);
     for (final account in accountsToCheck) {
       final valid = await _interceptors.checkTokenAsync(
-          _webViewController!,
-          account.token
+        _webViewController!,
+        account.token,
       );
-      if(!valid) {
+      if (!valid) {
         _repo.remove(account.token);
-        if(mounted) setState(() => _accounts = _repo.getAll());
+        if (mounted) setState(() => _accounts = _repo.getAll());
       }
     }
 
-    if(_currentToken.isNotEmpty) {
+    if (_currentToken.isNotEmpty) {
       await CookieUtils.setAuthCookie(_currentToken);
-    }else{
+      await _persistLastAuthToken(_currentToken);
+    } else {
       await CookieManager.instance().deleteAllCookies();
+      await _persistLastAuthToken('');
     }
   }
+
+  static const _pulseUrl = 'https://pulse.mirea.ru';
 
   Future<void> _selectAccount(int index) async {
     if (index == _accounts.length) {
@@ -149,15 +213,26 @@ class _MainScreenState extends State<MainScreen> {
         _currentToken = '';
         _currentUserName = '';
       });
+      await _persistLastAuthToken('');
       await CookieManager.instance().deleteAllCookies();
-      _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri('https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True')));
+      _webViewController?.loadUrl(
+        urlRequest: URLRequest(
+          url: WebUri(
+            'https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True',
+          ),
+        ),
+      );
     } else {
       final selected = _accounts[index];
       setState(() {
         _currentToken = selected.token;
+        _currentUserName = selected.name;
       });
       await CookieUtils.setAuthCookie(_currentToken);
-      _webViewController?.reload();
+      await _persistLastAuthToken(_currentToken);
+      await _webViewController?.loadUrl(
+        urlRequest: URLRequest(url: WebUri(_pulseUrl)),
+      );
     }
   }
 
@@ -166,23 +241,30 @@ class _MainScreenState extends State<MainScreen> {
     _interceptors.registerHandlers(controller);
   }
 
-  Future<void> _onLoadStart(InAppWebViewController controller, WebUri? url) async {
+  Future<void> _onLoadStart(
+    InAppWebViewController controller,
+    WebUri? url,
+  ) async {
     await _interceptors.hideHeader(controller);
   }
 
-  Future<void> _onLoadStop(InAppWebViewController controller, WebUri? url) async {
-    await _interceptors.hideHeader(controller);
+  Future<void> _onLoadStop(
+    InAppWebViewController controller,
+    WebUri? url,
+  ) async {
+    _scheduleHideHeaderForPulse();
 
     final token = await CookieUtils.getAuthToken('https://attendance.mirea.ru');
     if (token != null && token.isNotEmpty) {
       setState(() => _currentToken = token);
+      await _persistLastAuthToken(token);
     }
   }
 
   Future<PermissionResponse> _onPermissionRequest(
-      InAppWebViewController controller,
-      PermissionRequest request,
-      ) async {
+    InAppWebViewController controller,
+    PermissionRequest request,
+  ) async {
     final allowed = request.resources
         .where((r) => r == PermissionResourceType.CAMERA)
         .toList();
@@ -199,14 +281,13 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         titleSpacing: 16,
         title: Text(
           _pageTitle.isEmpty ? 'Mirea Switcher' : _pageTitle,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold
-          ),
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.start,
         ),
         actions: [
           MenuAnchor(
@@ -223,14 +304,14 @@ class _MainScreenState extends State<MainScreen> {
                   _currentUserName.isEmpty ? 'Войти' : _currentUserName,
                   style: TextStyle(
                     fontWeight: FontWeight.w300,
-                    color: Color.fromRGBO(22, 119, 255, 1)
+                    color: Color.fromRGBO(22, 119, 255, 1),
                   ),
                 ),
               );
             },
             menuChildren: [
               ..._accounts.asMap().entries.map(
-                    (e) => MenuItemButton(
+                (e) => MenuItemButton(
                   onPressed: () => _selectAccount(e.key),
                   child: Text(e.value.name),
                 ),
@@ -244,9 +325,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: _buildBody(),
-      ),
+      body: SafeArea(child: _buildBody()),
     );
   }
 
@@ -279,12 +358,13 @@ class _MainScreenState extends State<MainScreen> {
         }
       },
       child: InAppWebView(
-        initialUrlRequest: URLRequest(url: WebUri('https://pulse.mirea.ru')),
+        initialUrlRequest: URLRequest(url: WebUri(_pulseUrl)),
         initialSettings: InAppWebViewSettings(
           javaScriptEnabled: true,
           domStorageEnabled: true,
           thirdPartyCookiesEnabled: true,
           mediaPlaybackRequiresUserGesture: false,
+          allowsInlineMediaPlayback: true,
           overScrollMode: OverScrollMode.NEVER,
         ),
         initialUserScripts: UnmodifiableListView([
@@ -299,12 +379,13 @@ class _MainScreenState extends State<MainScreen> {
         ]),
         shouldOverrideUrlLoading: (controller, navigationAction) async {
           final url = navigationAction.request.url;
-          if(url != null && url.path.contains('/api/auth/logout')){
+          if (url != null && url.path.contains('/api/auth/logout')) {
             setState(() {
               _currentToken = '';
               _currentUserName = '';
               _checkStarted = false;
             });
+            unawaited(_persistLastAuthToken(''));
           }
 
           return NavigationActionPolicy.ALLOW;
@@ -317,4 +398,3 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
-
