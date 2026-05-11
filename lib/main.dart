@@ -207,6 +207,19 @@ class _MainScreenState extends State<MainScreen> {
 
   static const _pulseUrl = 'https://pulse.mirea.ru';
 
+  /// После смены куки: на pulse остаёмся на том же URL, иначе открываем корень pulse.
+  Future<void> _navigateAfterAccountSwitch() async {
+    final c = _webViewController;
+    if (c == null) return;
+    final u = await c.getUrl();
+    final onPulse = u != null && u.host.toLowerCase() == 'pulse.mirea.ru';
+    if (onPulse) {
+      await c.reload();
+    } else {
+      await c.loadUrl(urlRequest: URLRequest(url: WebUri(_pulseUrl)));
+    }
+  }
+
   Future<void> _selectAccount(int index) async {
     if (index == _accounts.length) {
       setState(() {
@@ -230,9 +243,7 @@ class _MainScreenState extends State<MainScreen> {
       });
       await CookieUtils.setAuthCookie(_currentToken);
       await _persistLastAuthToken(_currentToken);
-      await _webViewController?.loadUrl(
-        urlRequest: URLRequest(url: WebUri(_pulseUrl)),
-      );
+      await _navigateAfterAccountSwitch();
     }
   }
 
