@@ -66,7 +66,6 @@ class _MainScreenState extends State<MainScreen> {
   String _currentToken = '';
   String _currentUserName = '';
   String _pageTitle = '';
-  bool _checkStarted = false;
   bool _cameraGranted = false;
   bool _permissionChecked = false;
 
@@ -87,10 +86,6 @@ class _MainScreenState extends State<MainScreen> {
       },
       onGetMeIntercepted: () {
         _scheduleHideHeaderForPulse();
-        if (!_checkStarted) {
-          _checkStarted = true;
-          _checkAccounts();
-        }
       },
       onUrlChanged: (url) async {
         final controller = _webViewController;
@@ -100,6 +95,7 @@ class _MainScreenState extends State<MainScreen> {
         if (!mounted) return;
         setState(() => _pageTitle = title?.replaceAll('"', '') ?? '');
       },
+      onOpenAccounts: _showAccountsSheet,
     );
     _checkAndRequestPermissions();
   }
@@ -183,28 +179,6 @@ class _MainScreenState extends State<MainScreen> {
     unawaited(Future.delayed(const Duration(milliseconds: 2000), hide));
   }
 
-  void _checkAccounts() async {
-    final accountsToCheck = List.of(_accounts);
-    for (final account in accountsToCheck) {
-      final valid = await _interceptors.checkTokenAsync(
-        _webViewController!,
-        account.token,
-      );
-      if (!valid) {
-        _repo.remove(account.token);
-        if (mounted) setState(() => _accounts = _repo.getAll());
-      }
-    }
-
-    if (_currentToken.isNotEmpty) {
-      await CookieUtils.setAuthCookie(_currentToken);
-      await _persistLastAuthToken(_currentToken);
-    } else {
-      await CookieManager.instance().deleteAllCookies();
-      await _persistLastAuthToken('');
-    }
-  }
-
   static const _pulseUrl = 'https://pulse.mirea.ru';
 
   /// После смены куки: на pulse остаёмся на том же URL, иначе открываем корень pulse.
@@ -220,21 +194,103 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _selectAccount(int index) async {
-    if (index == _accounts.length) {
-      setState(() {
-        _currentToken = '';
-        _currentUserName = '';
-      });
-      await _persistLastAuthToken('');
-      await CookieManager.instance().deleteAllCookies();
-      _webViewController?.loadUrl(
-        urlRequest: URLRequest(
-          url: WebUri(
-            'https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True',
+  Future<void> _startLogin() async {
+    setState(() {
+      _currentToken = '';
+      _currentUserName = '';
+    });
+    await _persistLastAuthToken('');
+    await CookieManager.instance().deleteAllCookies();
+    _webViewController?.loadUrl(
+      urlRequest: URLRequest(
+        url: WebUri(
+          'https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteAccount(Account account) async {
+    await _repo.remove(account.token);
+    if (!mounted) return;
+    setState(() => _accounts = _repo.getAll());
+    if (account.token == _currentToken) await _startLogin();
+  }
+
+  Future<void> _confirmDelete(Account account) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Удалить аккаунт?'),
+        content: Text(account.name),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _deleteAccount(account);
+  }
+
+  void _showAccountsSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.6,
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final (i, a) in _accounts.indexed)
+                  ListTile(
+                    leading: Icon(
+                      a.token == _currentToken
+                          ? Icons.check_circle
+                          : Icons.account_circle_outlined,
+                    ),
+                    title: Text(a.name),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _selectAccount(i);
+                    },
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        await _confirmDelete(a);
+                        setSheetState(() {});
+                      },
+                    ),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.add),
+                  title: const Text('Добавить'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _selectAccount(_accounts.length);
+                  },
+                ),
+              ],
+            ),
           ),
         ),
-      );
+      ),
+    );
+  }
+
+  Future<void> _selectAccount(int index) async {
+    if (index == _accounts.length) {
+      await _startLogin();
     } else {
       final selected = _accounts[index];
       setState(() {
@@ -387,6 +443,10 @@ class _MainScreenState extends State<MainScreen> {
             source: Interceptors.buildHistoryInterceptScript(),
             injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
           ),
+          UserScript(
+            source: Interceptors.buildAccountsButtonScript(),
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          ),
         ]),
         shouldOverrideUrlLoading: (controller, navigationAction) async {
           final url = navigationAction.request.url;
@@ -394,7 +454,6 @@ class _MainScreenState extends State<MainScreen> {
             setState(() {
               _currentToken = '';
               _currentUserName = '';
-              _checkStarted = false;
             });
             unawaited(_persistLastAuthToken(''));
           }
