@@ -81,7 +81,6 @@ class _MainScreenState extends State<MainScreen> {
     _interceptors = Interceptors(
       onUserName: (name) {
         if (!mounted) return;
-        setState(() => _currentUserName = name);
         _onUserNameReceived(name);
       },
       onGetMeIntercepted: () {
@@ -152,12 +151,17 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _onUserNameReceived(String name) {
+  Future<void> _onUserNameReceived(String name) async {
+    setState(() => _currentUserName = name);
+    final token = await CookieUtils.getAuthToken(_pulseUrl);
+    if (!mounted || token == null || token.isEmpty) return;
+    await _repo.addIfAbsent(name, token);
+    if (!mounted) return;
     setState(() {
-      _currentUserName = name;
+      _currentToken = token;
+      _accounts = _repo.getAll();
     });
-    _repo.addIfAbsent(name, _currentToken);
-    setState(() => _accounts = _repo.getAll());
+    await _persistLastAuthToken(token);
   }
 
   /// Скрывает шапку сайта; повторы нужны, т.к. после смены сессии React
@@ -181,6 +185,10 @@ class _MainScreenState extends State<MainScreen> {
 
   static const _pulseUrl = 'https://pulse.mirea.ru';
 
+  static String _loginUrl() =>
+      '$_pulseUrl/api/auth/login'
+      '?redirectUri=${Uri.encodeComponent('$_pulseUrl/services')}&rememberMe=True';
+
   /// После смены куки: на pulse остаёмся на том же URL, иначе открываем корень pulse.
   Future<void> _navigateAfterAccountSwitch() async {
     final c = _webViewController;
@@ -202,11 +210,7 @@ class _MainScreenState extends State<MainScreen> {
     await _persistLastAuthToken('');
     await CookieManager.instance().deleteAllCookies();
     _webViewController?.loadUrl(
-      urlRequest: URLRequest(
-        url: WebUri(
-          'https://attendance.mirea.ru/api/auth/login?redirectUri=https%3A%2F%2Fpulse.mirea.ru%2Fservices&rememberMe=True',
-        ),
-      ),
+      urlRequest: URLRequest(url: WebUri(_loginUrl())),
     );
   }
 
@@ -321,7 +325,7 @@ class _MainScreenState extends State<MainScreen> {
   ) async {
     _scheduleHideHeaderForPulse();
 
-    final token = await CookieUtils.getAuthToken('https://attendance.mirea.ru');
+    final token = await CookieUtils.getAuthToken(_pulseUrl);
     if (token != null && token.isNotEmpty) {
       setState(() => _currentToken = token);
       await _persistLastAuthToken(token);
