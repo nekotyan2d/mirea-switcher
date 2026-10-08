@@ -2,6 +2,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class CookieUtils {
   static final _manager = CookieManager.instance();
+  static const _authCookie = 'Pulse.Auth.Cookie';
 
   static Map<String, String> parseCookies(String? cookieString) {
     if(cookieString == null || cookieString.trim().isEmpty) return {};
@@ -18,9 +19,8 @@ class CookieUtils {
   static Future<void> setAuthCookie(String token) async {
     await _manager.setCookie(
       url: WebUri('https://pulse.mirea.ru'),
-      name: '.AspNetCore.Cookies',
+      name: _authCookie,
       value: token,
-      domain: '.mirea.ru',
       path: '/',
       sameSite: HTTPCookieSameSitePolicy.NONE,
       isSecure: true,
@@ -30,7 +30,7 @@ class CookieUtils {
   static Future<String?> getAuthToken(String domain) async {
     final cookie = await _manager.getCookie(
         url: WebUri(domain),
-        name: '.AspNetCore.Cookies'
+        name: _authCookie
     );
     return cookie?.value;
   }
